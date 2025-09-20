@@ -340,9 +340,16 @@
             playSound('diceRoll'); // 播放鼓聲音效
             setIsDrawing(true);
             setTimeout(() => {
-              const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, allWinningNumbers);
+              const excludeNumbers = new Set(allWinningNumbers);
+              currentNumbers.forEach(num => excludeNumbers.add(num));
+              absentNumbers.forEach(num => excludeNumbers.add(num));
+
+              const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, excludeNumbers);
               if (newNumbers.length > 0) {
-                setCurrentNumbers(prev => [...prev, ...newNumbers]);
+                setCurrentNumbers(prev => {
+                  const combinedNumbers = [...prev, ...newNumbers];
+                  return combinedNumbers.sort((a, b) => a - b);
+                });
                 setAbsentNumbers([]);
                 triggerCelebration();
                 playSound('celebration'); // 播放歡呼音效
