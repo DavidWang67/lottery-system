@@ -50,33 +50,33 @@
           // 音效功能
           const playSound = (type) => {
             if (!soundEnabled) return;
-            
+
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
+
             const createNoise = (duration) => {
               const bufferSize = audioContext.sampleRate * duration;
               const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
               const output = buffer.getChannelData(0);
-              
+
               for (let i = 0; i < bufferSize; i++) {
                 output[i] = (Math.random() * 2 - 1) * 0.1;
               }
-              
+
               const noise = audioContext.createBufferSource();
               const filter = audioContext.createBiquadFilter();
               const gainNode = audioContext.createGain();
-              
+
               noise.buffer = buffer;
               filter.type = 'bandpass';
               filter.frequency.setValueAtTime(400, audioContext.currentTime);
-              
+
               noise.connect(filter);
               filter.connect(gainNode);
               gainNode.connect(audioContext.destination);
-              
+
               gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
               gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-              
+
               noise.start(audioContext.currentTime);
               noise.stop(audioContext.currentTime + duration);
             };
@@ -84,33 +84,138 @@
             const createBeep = (frequency, duration, type = 'sine') => {
               const oscillator = audioContext.createOscillator();
               const gainNode = audioContext.createGain();
-              
+
               oscillator.connect(gainNode);
               gainNode.connect(audioContext.destination);
-              
+
               oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
               oscillator.type = type;
-              
+
               gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
               gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-              
+
               oscillator.start(audioContext.currentTime);
               oscillator.stop(audioContext.currentTime + duration);
             };
 
+            const createDrumRoll = () => {
+              const duration = 2;
+              const bufferSize = audioContext.sampleRate * duration;
+              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+              const output = buffer.getChannelData(0);
+
+              for (let i = 0; i < bufferSize; i++) {
+                const progress = i / bufferSize;
+                const tremolo = Math.sin(progress * Math.PI * 16);
+                const crescendo = Math.pow(progress, 2);
+                output[i] = (Math.random() * 2 - 1) * 0.35 * (0.4 + 0.6 * tremolo) * (0.2 + 0.8 * crescendo);
+              }
+
+              const noise = audioContext.createBufferSource();
+              const filter = audioContext.createBiquadFilter();
+              const gainNode = audioContext.createGain();
+
+              noise.buffer = buffer;
+              filter.type = 'lowpass';
+              filter.frequency.setValueAtTime(900, audioContext.currentTime);
+              filter.Q.setValueAtTime(0.7, audioContext.currentTime);
+
+              noise.connect(filter);
+              filter.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+
+              const now = audioContext.currentTime;
+              gainNode.gain.setValueAtTime(0.0001, now);
+              gainNode.gain.exponentialRampToValueAtTime(0.5, now + 1.8);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+              noise.start(now);
+              noise.stop(now + duration);
+
+              const accentOsc = audioContext.createOscillator();
+              const accentGain = audioContext.createGain();
+
+              accentOsc.connect(accentGain);
+              accentGain.connect(audioContext.destination);
+
+              const accentStart = now + 1.8;
+              accentOsc.type = 'sine';
+              accentOsc.frequency.setValueAtTime(160, accentStart);
+              accentOsc.frequency.exponentialRampToValueAtTime(90, accentStart + 0.25);
+
+              accentGain.gain.setValueAtTime(0.001, accentStart);
+              accentGain.gain.exponentialRampToValueAtTime(0.5, accentStart + 0.05);
+              accentGain.gain.exponentialRampToValueAtTime(0.01, accentStart + 0.4);
+
+              accentOsc.start(accentStart);
+              accentOsc.stop(accentStart + 0.5);
+            };
+
+            const createCheer = () => {
+              const duration = 1.8;
+              const bufferSize = audioContext.sampleRate * duration;
+              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+              const output = buffer.getChannelData(0);
+
+              for (let i = 0; i < bufferSize; i++) {
+                const progress = i / bufferSize;
+                const swell = Math.sin(progress * Math.PI);
+                output[i] = (Math.random() * 2 - 1) * 0.25 * swell;
+              }
+
+              const crowd = audioContext.createBufferSource();
+              const bandpass = audioContext.createBiquadFilter();
+              const gainNode = audioContext.createGain();
+
+              crowd.buffer = buffer;
+              bandpass.type = 'bandpass';
+              bandpass.frequency.setValueAtTime(1500, audioContext.currentTime);
+              bandpass.Q.setValueAtTime(1.2, audioContext.currentTime);
+
+              crowd.connect(bandpass);
+              bandpass.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+
+              const now = audioContext.currentTime;
+              gainNode.gain.setValueAtTime(0.0001, now);
+              gainNode.gain.exponentialRampToValueAtTime(0.5, now + 0.2);
+              gainNode.gain.setValueAtTime(0.5, now + 1.2);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+              crowd.start(now);
+              crowd.stop(now + duration);
+
+              const whoopOsc = audioContext.createOscillator();
+              const whoopGain = audioContext.createGain();
+
+              whoopOsc.connect(whoopGain);
+              whoopGain.connect(audioContext.destination);
+
+              whoopOsc.type = 'triangle';
+              whoopOsc.frequency.setValueAtTime(650, now);
+              whoopOsc.frequency.linearRampToValueAtTime(980, now + 0.5);
+              whoopOsc.frequency.linearRampToValueAtTime(720, now + 1.1);
+
+              whoopGain.gain.setValueAtTime(0.0001, now);
+              whoopGain.gain.exponentialRampToValueAtTime(0.4, now + 0.1);
+              whoopGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+              whoopOsc.start(now);
+              whoopOsc.stop(now + 1.3);
+
+              setTimeout(() => createBeep(1200, 0.15), 200);
+              setTimeout(() => createBeep(1400, 0.15), 350);
+              setTimeout(() => createBeep(1600, 0.15), 500);
+            };
+
             switch(type) {
               case 'diceRoll':
-                // 骰子滾動音效 - 短促的噪音爆發
-                for (let i = 0; i < 8; i++) {
-                  setTimeout(() => createNoise(0.1), i * 100);
-                }
+                // 鼓聲 - 帶有漸強效果的滾奏
+                createDrumRoll();
                 break;
               case 'celebration':
-                // 慶祝音效 - 歡樂的上升音階
-                const celebrationNotes = [523, 659, 784, 1047, 1319]; // C-E-G-C-E
-                celebrationNotes.forEach((note, index) => {
-                  setTimeout(() => createBeep(note, 0.3), index * 150);
-                });
+                // 歡呼音效 - 群眾歡呼搭配尖叫
+                createCheer();
                 break;
               case 'absent':
                 // 缺席音效 - 低沉音
@@ -151,7 +256,7 @@
               return;
             }
 
-            playSound('diceRoll'); // 播放骰子滾動音效
+            playSound('diceRoll'); // 播放鼓聲音效
             setIsDrawing(true);
             
             setTimeout(() => {
@@ -160,7 +265,7 @@
                 setCurrentNumbers(newNumbers);
                 setAbsentNumbers([]);
                 triggerCelebration();
-                playSound('celebration'); // 播放慶祝音效
+                playSound('celebration'); // 播放歡呼音效
               }
               setIsDrawing(false);
             }, 2000); // 延長到2秒讓動畫完整播放
@@ -176,7 +281,7 @@
             const absentCount = absentNumbers.length;
             if (absentCount === 0) return;
 
-            playSound('diceRoll'); // 播放骰子滾動音效
+            playSound('diceRoll'); // 播放鼓聲音效
             setIsDrawing(true);
             setTimeout(() => {
               const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, allWinningNumbers);
@@ -184,7 +289,7 @@
                 setCurrentNumbers(prev => [...prev, ...newNumbers]);
                 setAbsentNumbers([]);
                 triggerCelebration();
-                playSound('celebration'); // 播放慶祝音效
+                playSound('celebration'); // 播放歡呼音效
               }
               setIsDrawing(false);
             }, 2000);
