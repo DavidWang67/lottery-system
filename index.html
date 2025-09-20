@@ -32,6 +32,8 @@
           const [showSettings, setShowSettings] = useState(false);
           const [soundEnabled, setSoundEnabled] = useState(true);
           const [showCelebration, setShowCelebration] = useState(false);
+          const [rerollingIndices, setRerollingIndices] = useState([]);
+          const [isRerolling, setIsRerolling] = useState(false);
           const celebrationTimeoutRef = useRef(null);
           const audioContextRef = useRef(null);
           const customAudioCacheRef = useRef({
@@ -319,6 +321,8 @@
               const newNumbers = generateRandomNumbers(drawCount, minNumber, maxNumber, allWinningNumbers);
               if (newNumbers.length > 0) {
                 setCurrentNumbers(newNumbers);
+                setRerollingIndices([]);
+                setIsRerolling(false);
                 setAbsentNumbers([]);
                 triggerCelebration();
                 playSound('celebration'); // 播放歡呼音效
@@ -347,7 +351,20 @@
             if (absentCount === 0) return;
 
             playSound('diceRoll'); // 播放鼓聲音效
-            setIsDrawing(true);
+            const slotsToFill = [];
+            currentNumbers.forEach((num, index) => {
+              if (num == null) {
+                slotsToFill.push(index);
+              }
+            });
+
+            if (slotsToFill.length === 0) {
+              return;
+            }
+
+            setRerollingIndices(slotsToFill);
+            setIsRerolling(true);
+
             setTimeout(() => {
               const excludeNumbers = new Set(allWinningNumbers);
               currentNumbers.forEach(num => {
@@ -373,7 +390,8 @@
                 triggerCelebration();
                 playSound('celebration'); // 播放歡呼音效
               }
-              setIsDrawing(false);
+              setRerollingIndices([]);
+              setIsRerolling(false);
             }, 2000);
           };
 
@@ -408,6 +426,8 @@
             setAllWinningNumbers(new Set(allWinningNumbers));
             setCurrentNumbers([]);
             setAbsentNumbers([]);
+            setRerollingIndices([]);
+            setIsRerolling(false);
             setCurrentRound(prev => prev + 1);
             
             const absentMessage = currentAbsent.length > 0 ? `\n不在現場號碼：${currentAbsent.join(', ')}（已從號碼池中移除）` : '';
@@ -421,6 +441,8 @@
               setAllWinningNumbers(new Set());
               setDrawHistory([]);
               setCurrentRound(1);
+              setRerollingIndices([]);
+              setIsRerolling(false);
             }
           };
 
@@ -538,7 +560,7 @@
                             playSound('click');
                             performDraw();
                           }}
-                          disabled={isDrawing}
+                          disabled={isDrawing || isRerolling}
                           className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg transform hover:scale-105 transition-all duration-200"
                         >
                           {isDrawing ? (
@@ -581,14 +603,25 @@
                             </div>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                            {currentNumbers.map((number, index) => (
+                            {currentNumbers.map((number, index) => {
+                              const isSlotRerolling = rerollingIndices.includes(index);
+                              return (
                               <div
                                 key={index}
                                 className={`relative ${showCelebration ? 'animate-bounce' : ''}`}
                                 style={{animationDelay: `${index * 0.1}s`, animationDuration: '1s'}}
                               >
                                 <div className={`bg-gradient-to-r ${number != null ? 'from-yellow-400 to-orange-500' : 'from-gray-500 to-gray-600'} rounded-lg p-6 text-center shadow-lg transform ${number != null ? 'hover:scale-105' : ''} transition-all ${showCelebration ? 'animate-pulse' : ''}`}>
-                                  <div className="text-3xl font-bold text-white">{number != null ? number : '待抽取'}</div>
+                                  {number != null ? (
+                                    <div className="text-3xl font-bold text-white">{number}</div>
+                                  ) : isSlotRerolling ? (
+                                    <div className="flex flex-col items-center gap-2 text-white">
+                                      <div className="text-4xl animate-spin">🎲</div>
+                                      <div className="text-sm tracking-widest">重新抽取中</div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-3xl font-bold text-white">待抽取</div>
+                                  )}
                                 </div>
                                 {number != null && (
                                   <button
@@ -600,7 +633,8 @@
                                   </button>
                                 )}
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
 
                           <div className="text-center">
@@ -642,10 +676,15 @@
                     <div className="text-center">
                       <button
                         onClick={redrawAbsent}
-                        disabled={isDrawing}
+                        disabled={isDrawing || isRerolling}
                         className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 px-6 rounded-lg flex items-center gap-2 mx-auto"
                       >
-                        {isDrawing ? (
+                        {isRerolling ? (
+                          <>
+                            <div className="animate-spin">🎲</div>
+                            重新抽取中...
+                          </>
+                        ) : isDrawing ? (
                           <>
                             <div className="animate-spin">🎲</div>
                             重新抽取中...
