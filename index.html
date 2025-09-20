@@ -14,6 +14,11 @@
     <script type="text/babel">
         const { useState, useRef, useEffect } = React;
 
+        const CUSTOM_AUDIO_FILES = {
+          diceRoll: './custom-dice-roll.mp3',
+          celebration: './custom-celebration.mp3',
+        };
+
         const LotterySystem = () => {
           const [minNumber, setMinNumber] = useState(1);
           const [maxNumber, setMaxNumber] = useState(1000);
@@ -29,16 +34,14 @@
           const [showCelebration, setShowCelebration] = useState(false);
           const celebrationTimeoutRef = useRef(null);
           const audioContextRef = useRef(null);
-          const audioElementsRef = useRef({});
-          const [customSoundSources, setCustomSoundSources] = useState({
+          const customAudioCacheRef = useRef({
             diceRoll: null,
             celebration: null,
           });
-          const [customSoundInputs, setCustomSoundInputs] = useState({
-            diceRoll: '',
-            celebration: '',
+          const customAudioStatusRef = useRef({
+            diceRoll: 'unknown',
+            celebration: 'unknown',
           });
-          const customSoundSourcesRef = useRef(customSoundSources);
 
           useEffect(() => {
             return () => {
@@ -59,19 +62,14 @@
           };
 
           useEffect(() => {
-            customSoundSourcesRef.current = customSoundSources;
-          }, [customSoundSources]);
-
-          useEffect(() => {
             return () => {
-              Object.values(customSoundSourcesRef.current).forEach((src) => {
-                if (src && src.startsWith('blob:')) {
-                  URL.revokeObjectURL(src);
-                }
-              });
-              Object.values(audioElementsRef.current).forEach((audio) => {
+              Object.values(customAudioCacheRef.current).forEach((audio) => {
                 if (audio) {
-                  audio.pause();
+                  try {
+                    audio.pause();
+                  } catch (error) {
+                    console.warn('清理自訂音效時發生錯誤：', error);
+                  }
                 }
               });
               if (audioContextRef.current) {
@@ -80,72 +78,6 @@
               }
             };
           }, []);
-
-          const handleSoundFileChange = (type, event) => {
-            const file = event.target.files?.[0];
-            if (!file) {
-              event.target.value = '';
-              return;
-            }
-
-            const objectUrl = URL.createObjectURL(file);
-            setCustomSoundSources(prev => {
-              const nextSources = { ...prev };
-              if (nextSources[type] && nextSources[type].startsWith('blob:')) {
-                URL.revokeObjectURL(nextSources[type]);
-              }
-              nextSources[type] = objectUrl;
-              return nextSources;
-            });
-            setCustomSoundInputs(prev => ({ ...prev, [type]: '' }));
-            if (audioElementsRef.current[type]) {
-              audioElementsRef.current[type].pause();
-              delete audioElementsRef.current[type];
-            }
-            event.target.value = '';
-          };
-
-          const handleSoundInputChange = (type, value) => {
-            setCustomSoundInputs(prev => ({ ...prev, [type]: value }));
-          };
-
-          const applyCustomSoundUrl = (type) => {
-            const url = customSoundInputs[type].trim();
-            setCustomSoundInputs(prev => ({ ...prev, [type]: url }));
-            if (!url) {
-              resetCustomSound(type);
-              return;
-            }
-
-            setCustomSoundSources(prev => {
-              const nextSources = { ...prev };
-              if (nextSources[type] && nextSources[type].startsWith('blob:')) {
-                URL.revokeObjectURL(nextSources[type]);
-              }
-              nextSources[type] = url;
-              return nextSources;
-            });
-            if (audioElementsRef.current[type]) {
-              audioElementsRef.current[type].pause();
-              delete audioElementsRef.current[type];
-            }
-          };
-
-          const resetCustomSound = (type) => {
-            setCustomSoundSources(prev => {
-              const nextSources = { ...prev };
-              if (nextSources[type] && nextSources[type].startsWith('blob:')) {
-                URL.revokeObjectURL(nextSources[type]);
-              }
-              nextSources[type] = null;
-              return nextSources;
-            });
-            setCustomSoundInputs(prev => ({ ...prev, [type]: '' }));
-            if (audioElementsRef.current[type]) {
-              audioElementsRef.current[type].pause();
-              delete audioElementsRef.current[type];
-            }
-          };
 
           const getAudioContext = () => {
             if (!audioContextRef.current) {
@@ -157,26 +89,41 @@
             return audioContextRef.current;
           };
 
-          const playCustomAudio = (type) => {
-            const src = customSoundSources[type];
-            if (!src) return false;
+          const playCustomAudio = (type, fallback) => {
+            const path = CUSTOM_AUDIO_FILES[type];
+            if (!path) return false;
 
-            let audio = audioElementsRef.current[type];
+            if (customAudioStatusRef.current[type] === 'unavailable') {
+              return false;
+            }
+
+            let audio = customAudioCacheRef.current[type];
             if (!audio) {
-              audio = new Audio(src);
-              audioElementsRef.current[type] = audio;
-            } else if (audio.src !== src) {
-              audio.pause();
-              audio.currentTime = 0;
-              audio.src = src;
+              audio = new Audio(path);
+              customAudioCacheRef.current[type] = audio;
             }
 
             try {
               audio.currentTime = 0;
-              audio.play();
+              const playPromise = audio.play();
+              customAudioStatusRef.current[type] = 'available';
+
+              if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch((error) => {
+                  console.warn(`播放自訂音效失敗 (${path})，改用預設音效。`, error);
+                  customAudioStatusRef.current[type] = 'unavailable';
+                  customAudioCacheRef.current[type] = null;
+                  if (typeof fallback === 'function') {
+                    fallback();
+                  }
+                });
+              }
+
               return true;
             } catch (error) {
-              console.error('播放自訂音效時發生錯誤：', error);
+              console.warn(`播放自訂音效失敗 (${path})，改用預設音效。`, error);
+              customAudioStatusRef.current[type] = 'unavailable';
+              customAudioCacheRef.current[type] = null;
               return false;
             }
           };
@@ -185,190 +132,161 @@
           const playSound = (type) => {
             if (!soundEnabled) return;
 
-            if ((type === 'diceRoll' || type === 'celebration') && playCustomAudio(type)) {
+            const playGeneratedSound = () => {
+              const audioContext = getAudioContext();
+
+              const createBeep = (frequency, duration, waveType = 'sine') => {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                oscillator.type = waveType;
+
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + duration);
+              };
+
+              const createDrumRoll = () => {
+                const duration = 2;
+                const bufferSize = audioContext.sampleRate * duration;
+                const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const output = buffer.getChannelData(0);
+
+                for (let i = 0; i < bufferSize; i++) {
+                  const progress = i / bufferSize;
+                  const tremolo = Math.sin(progress * Math.PI * 16);
+                  const crescendo = Math.pow(progress, 2);
+                  output[i] = (Math.random() * 2 - 1) * 0.35 * (0.4 + 0.6 * tremolo) * (0.2 + 0.8 * crescendo);
+                }
+
+                const noise = audioContext.createBufferSource();
+                const filter = audioContext.createBiquadFilter();
+                const gainNode = audioContext.createGain();
+
+                noise.buffer = buffer;
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(900, audioContext.currentTime);
+                filter.Q.setValueAtTime(0.7, audioContext.currentTime);
+
+                noise.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                const now = audioContext.currentTime;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.5, now + 1.8);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+                noise.start(now);
+                noise.stop(now + duration);
+
+                const accentOsc = audioContext.createOscillator();
+                const accentGain = audioContext.createGain();
+
+                accentOsc.connect(accentGain);
+                accentGain.connect(audioContext.destination);
+
+                const accentStart = now + 1.8;
+                accentOsc.type = 'sine';
+                accentOsc.frequency.setValueAtTime(160, accentStart);
+                accentOsc.frequency.exponentialRampToValueAtTime(90, accentStart + 0.25);
+
+                accentGain.gain.setValueAtTime(0.001, accentStart);
+                accentGain.gain.exponentialRampToValueAtTime(0.5, accentStart + 0.05);
+                accentGain.gain.exponentialRampToValueAtTime(0.01, accentStart + 0.4);
+
+                accentOsc.start(accentStart);
+                accentOsc.stop(accentStart + 0.5);
+              };
+
+              const createCheer = () => {
+                const duration = 1.8;
+                const bufferSize = audioContext.sampleRate * duration;
+                const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const output = buffer.getChannelData(0);
+
+                for (let i = 0; i < bufferSize; i++) {
+                  const progress = i / bufferSize;
+                  const swell = Math.sin(progress * Math.PI);
+                  output[i] = (Math.random() * 2 - 1) * 0.25 * swell;
+                }
+
+                const crowd = audioContext.createBufferSource();
+                const bandpass = audioContext.createBiquadFilter();
+                const gainNode = audioContext.createGain();
+
+                crowd.buffer = buffer;
+                bandpass.type = 'bandpass';
+                bandpass.frequency.setValueAtTime(1500, audioContext.currentTime);
+                bandpass.Q.setValueAtTime(1.2, audioContext.currentTime);
+
+                crowd.connect(bandpass);
+                bandpass.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                const now = audioContext.currentTime;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.5, now + 0.2);
+                gainNode.gain.setValueAtTime(0.5, now + 1.2);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+                crowd.start(now);
+                crowd.stop(now + duration);
+
+                const whoopOsc = audioContext.createOscillator();
+                const whoopGain = audioContext.createGain();
+
+                whoopOsc.connect(whoopGain);
+                whoopGain.connect(audioContext.destination);
+
+                whoopOsc.type = 'triangle';
+                whoopOsc.frequency.setValueAtTime(650, now);
+                whoopOsc.frequency.linearRampToValueAtTime(980, now + 0.5);
+                whoopOsc.frequency.linearRampToValueAtTime(720, now + 1.1);
+
+                whoopGain.gain.setValueAtTime(0.0001, now);
+                whoopGain.gain.exponentialRampToValueAtTime(0.4, now + 0.1);
+                whoopGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+                whoopOsc.start(now);
+                whoopOsc.stop(now + 1.3);
+
+                setTimeout(() => createBeep(1200, 0.15), 200);
+                setTimeout(() => createBeep(1400, 0.15), 350);
+                setTimeout(() => createBeep(1600, 0.15), 500);
+              };
+
+              switch(type) {
+                case 'diceRoll':
+                  createDrumRoll();
+                  break;
+                case 'celebration':
+                  createCheer();
+                  break;
+                case 'absent':
+                  createBeep(220, 0.3, 'sawtooth');
+                  break;
+                case 'confirm':
+                  createBeep(800, 0.1);
+                  setTimeout(() => createBeep(1000, 0.2), 100);
+                  break;
+                case 'click':
+                  createBeep(800, 0.05);
+                  break;
+              }
+            };
+
+            if ((type === 'diceRoll' || type === 'celebration') && playCustomAudio(type, playGeneratedSound)) {
               return;
             }
 
-            const audioContext = getAudioContext();
-
-            const createNoise = (duration) => {
-              const bufferSize = audioContext.sampleRate * duration;
-              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
-              const output = buffer.getChannelData(0);
-
-              for (let i = 0; i < bufferSize; i++) {
-                output[i] = (Math.random() * 2 - 1) * 0.1;
-              }
-
-              const noise = audioContext.createBufferSource();
-              const filter = audioContext.createBiquadFilter();
-              const gainNode = audioContext.createGain();
-
-              noise.buffer = buffer;
-              filter.type = 'bandpass';
-              filter.frequency.setValueAtTime(400, audioContext.currentTime);
-
-              noise.connect(filter);
-              filter.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-
-              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-
-              noise.start(audioContext.currentTime);
-              noise.stop(audioContext.currentTime + duration);
-            };
-
-            const createBeep = (frequency, duration, type = 'sine') => {
-              const oscillator = audioContext.createOscillator();
-              const gainNode = audioContext.createGain();
-
-              oscillator.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-
-              oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-              oscillator.type = type;
-
-              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-
-              oscillator.start(audioContext.currentTime);
-              oscillator.stop(audioContext.currentTime + duration);
-            };
-
-            const createDrumRoll = () => {
-              const duration = 2;
-              const bufferSize = audioContext.sampleRate * duration;
-              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
-              const output = buffer.getChannelData(0);
-
-              for (let i = 0; i < bufferSize; i++) {
-                const progress = i / bufferSize;
-                const tremolo = Math.sin(progress * Math.PI * 16);
-                const crescendo = Math.pow(progress, 2);
-                output[i] = (Math.random() * 2 - 1) * 0.35 * (0.4 + 0.6 * tremolo) * (0.2 + 0.8 * crescendo);
-              }
-
-              const noise = audioContext.createBufferSource();
-              const filter = audioContext.createBiquadFilter();
-              const gainNode = audioContext.createGain();
-
-              noise.buffer = buffer;
-              filter.type = 'lowpass';
-              filter.frequency.setValueAtTime(900, audioContext.currentTime);
-              filter.Q.setValueAtTime(0.7, audioContext.currentTime);
-
-              noise.connect(filter);
-              filter.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-
-              const now = audioContext.currentTime;
-              gainNode.gain.setValueAtTime(0.0001, now);
-              gainNode.gain.exponentialRampToValueAtTime(0.5, now + 1.8);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
-
-              noise.start(now);
-              noise.stop(now + duration);
-
-              const accentOsc = audioContext.createOscillator();
-              const accentGain = audioContext.createGain();
-
-              accentOsc.connect(accentGain);
-              accentGain.connect(audioContext.destination);
-
-              const accentStart = now + 1.8;
-              accentOsc.type = 'sine';
-              accentOsc.frequency.setValueAtTime(160, accentStart);
-              accentOsc.frequency.exponentialRampToValueAtTime(90, accentStart + 0.25);
-
-              accentGain.gain.setValueAtTime(0.001, accentStart);
-              accentGain.gain.exponentialRampToValueAtTime(0.5, accentStart + 0.05);
-              accentGain.gain.exponentialRampToValueAtTime(0.01, accentStart + 0.4);
-
-              accentOsc.start(accentStart);
-              accentOsc.stop(accentStart + 0.5);
-            };
-
-            const createCheer = () => {
-              const duration = 1.8;
-              const bufferSize = audioContext.sampleRate * duration;
-              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
-              const output = buffer.getChannelData(0);
-
-              for (let i = 0; i < bufferSize; i++) {
-                const progress = i / bufferSize;
-                const swell = Math.sin(progress * Math.PI);
-                output[i] = (Math.random() * 2 - 1) * 0.25 * swell;
-              }
-
-              const crowd = audioContext.createBufferSource();
-              const bandpass = audioContext.createBiquadFilter();
-              const gainNode = audioContext.createGain();
-
-              crowd.buffer = buffer;
-              bandpass.type = 'bandpass';
-              bandpass.frequency.setValueAtTime(1500, audioContext.currentTime);
-              bandpass.Q.setValueAtTime(1.2, audioContext.currentTime);
-
-              crowd.connect(bandpass);
-              bandpass.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-
-              const now = audioContext.currentTime;
-              gainNode.gain.setValueAtTime(0.0001, now);
-              gainNode.gain.exponentialRampToValueAtTime(0.5, now + 0.2);
-              gainNode.gain.setValueAtTime(0.5, now + 1.2);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
-
-              crowd.start(now);
-              crowd.stop(now + duration);
-
-              const whoopOsc = audioContext.createOscillator();
-              const whoopGain = audioContext.createGain();
-
-              whoopOsc.connect(whoopGain);
-              whoopGain.connect(audioContext.destination);
-
-              whoopOsc.type = 'triangle';
-              whoopOsc.frequency.setValueAtTime(650, now);
-              whoopOsc.frequency.linearRampToValueAtTime(980, now + 0.5);
-              whoopOsc.frequency.linearRampToValueAtTime(720, now + 1.1);
-
-              whoopGain.gain.setValueAtTime(0.0001, now);
-              whoopGain.gain.exponentialRampToValueAtTime(0.4, now + 0.1);
-              whoopGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
-
-              whoopOsc.start(now);
-              whoopOsc.stop(now + 1.3);
-
-              setTimeout(() => createBeep(1200, 0.15), 200);
-              setTimeout(() => createBeep(1400, 0.15), 350);
-              setTimeout(() => createBeep(1600, 0.15), 500);
-            };
-
-            switch(type) {
-              case 'diceRoll':
-                // 鼓聲 - 帶有漸強效果的滾奏
-                createDrumRoll();
-                break;
-              case 'celebration':
-                // 歡呼音效 - 群眾歡呼搭配尖叫
-                createCheer();
-                break;
-              case 'absent':
-                // 缺席音效 - 低沉音
-                createBeep(220, 0.3, 'sawtooth');
-                break;
-              case 'confirm':
-                // 確認音效 - 成功音
-                createBeep(800, 0.1);
-                setTimeout(() => createBeep(1000, 0.2), 100);
-                break;
-              case 'click':
-                // 點擊音效
-                createBeep(800, 0.05);
-                break;
-            }
+            playGeneratedSound();
           };
 
           const generateRandomNumbers = (count, min, max, exclude = new Set()) => {
@@ -556,98 +474,6 @@
                       </div>
                       <div className="text-white/70 text-xs mt-2">
                         {soundEnabled ? '音效已開啟' : '音效已關閉'}
-                      </div>
-                      <div className="mt-4 space-y-4 text-sm">
-                        <div>
-                          <label className="block text-white/80 mb-2">自訂「🎲 開始抽獎」音效 (MP3)</label>
-                          <input
-                            type="file"
-                            accept="audio/mpeg, audio/mp3"
-                            onChange={(e) => handleSoundFileChange('diceRoll', e)}
-                            className="w-full text-white text-xs"
-                          />
-                          <div className="mt-2 space-y-2 text-xs text-white/60">
-                            <div className="flex items-center justify-between">
-                              <span>{customSoundSources.diceRoll ? '已套用自訂音效' : '使用預設鼓聲'}</span>
-                              {customSoundSources.diceRoll && (
-                                <button
-                                  onClick={() => resetCustomSound('diceRoll')}
-                                  className="text-blue-300 hover:text-blue-100"
-                                >
-                                  恢復預設
-                                </button>
-                              )}
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-white/60">或輸入線上/本地路徑</label>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={customSoundInputs.diceRoll}
-                                  onChange={(e) => handleSoundInputChange('diceRoll', e.target.value)}
-                                  placeholder="例如 ./sounds/drum-roll.mp3"
-                                  className="flex-1 rounded-md border border-white/30 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
-                                />
-                                <button
-                                  onClick={() => applyCustomSoundUrl('diceRoll')}
-                                  className="rounded-md bg-blue-600 px-3 py-1 text-white hover:bg-blue-500"
-                                >
-                                  套用
-                                </button>
-                              </div>
-                              {customSoundSources.diceRoll && !customSoundSources.diceRoll.startsWith('blob:') && (
-                                <div className="break-all text-[10px] text-white/50">
-                                  目前路徑：{customSoundSources.diceRoll}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div>
-                          <label className="block text-white/80 mb-2">自訂「恭喜中獎」音效 (MP3)</label>
-                          <input
-                            type="file"
-                            accept="audio/mpeg, audio/mp3"
-                            onChange={(e) => handleSoundFileChange('celebration', e)}
-                            className="w-full text-white text-xs"
-                          />
-                          <div className="mt-2 space-y-2 text-xs text-white/60">
-                            <div className="flex items-center justify-between">
-                              <span>{customSoundSources.celebration ? '已套用自訂音效' : '使用預設歡呼聲'}</span>
-                              {customSoundSources.celebration && (
-                                <button
-                                  onClick={() => resetCustomSound('celebration')}
-                                  className="text-blue-300 hover:text-blue-100"
-                                >
-                                  恢復預設
-                                </button>
-                              )}
-                            </div>
-                            <div className="space-y-1">
-                              <label className="block text-white/60">或輸入線上/本地路徑</label>
-                              <div className="flex gap-2">
-                                <input
-                                  type="text"
-                                  value={customSoundInputs.celebration}
-                                  onChange={(e) => handleSoundInputChange('celebration', e.target.value)}
-                                  placeholder="例如 ./sounds/cheer.mp3"
-                                  className="flex-1 rounded-md border border-white/30 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
-                                />
-                                <button
-                                  onClick={() => applyCustomSoundUrl('celebration')}
-                                  className="rounded-md bg-blue-600 px-3 py-1 text-white hover:bg-blue-500"
-                                >
-                                  套用
-                                </button>
-                              </div>
-                              {customSoundSources.celebration && !customSoundSources.celebration.startsWith('blob:') && (
-                                <div className="break-all text-[10px] text-white/50">
-                                  目前路徑：{customSoundSources.celebration}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
                       </div>
                     </div>
 
