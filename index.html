@@ -28,6 +28,17 @@
           const [soundEnabled, setSoundEnabled] = useState(true);
           const [showCelebration, setShowCelebration] = useState(false);
           const celebrationTimeoutRef = useRef(null);
+          const audioContextRef = useRef(null);
+          const audioElementsRef = useRef({});
+          const [customSoundSources, setCustomSoundSources] = useState({
+            diceRoll: null,
+            celebration: null,
+          });
+          const [customSoundInputs, setCustomSoundInputs] = useState({
+            diceRoll: '',
+            celebration: '',
+          });
+          const customSoundSourcesRef = useRef(customSoundSources);
 
           useEffect(() => {
             return () => {
@@ -47,11 +58,138 @@
             }, 2000);
           };
 
+          useEffect(() => {
+            customSoundSourcesRef.current = customSoundSources;
+          }, [customSoundSources]);
+
+          useEffect(() => {
+            return () => {
+              Object.values(customSoundSourcesRef.current).forEach((src) => {
+                if (src && src.startsWith('blob:')) {
+                  URL.revokeObjectURL(src);
+                }
+              });
+              Object.values(audioElementsRef.current).forEach((audio) => {
+                if (audio) {
+                  audio.pause();
+                }
+              });
+              if (audioContextRef.current) {
+                audioContextRef.current.close().catch(() => {});
+                audioContextRef.current = null;
+              }
+            };
+          }, []);
+
+          const handleSoundFileChange = (type, event) => {
+            const file = event.target.files?.[0];
+            if (!file) {
+              event.target.value = '';
+              return;
+            }
+
+            const objectUrl = URL.createObjectURL(file);
+            setCustomSoundSources(prev => {
+              const nextSources = { ...prev };
+              if (nextSources[type] && nextSources[type].startsWith('blob:')) {
+                URL.revokeObjectURL(nextSources[type]);
+              }
+              nextSources[type] = objectUrl;
+              return nextSources;
+            });
+            setCustomSoundInputs(prev => ({ ...prev, [type]: '' }));
+            if (audioElementsRef.current[type]) {
+              audioElementsRef.current[type].pause();
+              delete audioElementsRef.current[type];
+            }
+            event.target.value = '';
+          };
+
+          const handleSoundInputChange = (type, value) => {
+            setCustomSoundInputs(prev => ({ ...prev, [type]: value }));
+          };
+
+          const applyCustomSoundUrl = (type) => {
+            const url = customSoundInputs[type].trim();
+            setCustomSoundInputs(prev => ({ ...prev, [type]: url }));
+            if (!url) {
+              resetCustomSound(type);
+              return;
+            }
+
+            setCustomSoundSources(prev => {
+              const nextSources = { ...prev };
+              if (nextSources[type] && nextSources[type].startsWith('blob:')) {
+                URL.revokeObjectURL(nextSources[type]);
+              }
+              nextSources[type] = url;
+              return nextSources;
+            });
+            if (audioElementsRef.current[type]) {
+              audioElementsRef.current[type].pause();
+              delete audioElementsRef.current[type];
+            }
+          };
+
+          const resetCustomSound = (type) => {
+            setCustomSoundSources(prev => {
+              const nextSources = { ...prev };
+              if (nextSources[type] && nextSources[type].startsWith('blob:')) {
+                URL.revokeObjectURL(nextSources[type]);
+              }
+              nextSources[type] = null;
+              return nextSources;
+            });
+            setCustomSoundInputs(prev => ({ ...prev, [type]: '' }));
+            if (audioElementsRef.current[type]) {
+              audioElementsRef.current[type].pause();
+              delete audioElementsRef.current[type];
+            }
+          };
+
+          const getAudioContext = () => {
+            if (!audioContextRef.current) {
+              audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContextRef.current.state === 'suspended') {
+              audioContextRef.current.resume().catch(() => {});
+            }
+            return audioContextRef.current;
+          };
+
+          const playCustomAudio = (type) => {
+            const src = customSoundSources[type];
+            if (!src) return false;
+
+            let audio = audioElementsRef.current[type];
+            if (!audio) {
+              audio = new Audio(src);
+              audioElementsRef.current[type] = audio;
+            } else if (audio.src !== src) {
+              audio.pause();
+              audio.currentTime = 0;
+              audio.src = src;
+            }
+
+            try {
+              audio.currentTime = 0;
+              audio.play();
+              return true;
+            } catch (error) {
+              console.error('播放自訂音效時發生錯誤：', error);
+              return false;
+            }
+          };
+
           // 音效功能
           const playSound = (type) => {
             if (!soundEnabled) return;
 
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if ((type === 'diceRoll' || type === 'celebration') && playCustomAudio(type)) {
+              return;
+            }
+
+            const audioContext = getAudioContext();
 
             const createNoise = (duration) => {
               const bufferSize = audioContext.sampleRate * duration;
@@ -418,6 +556,98 @@
                       </div>
                       <div className="text-white/70 text-xs mt-2">
                         {soundEnabled ? '音效已開啟' : '音效已關閉'}
+                      </div>
+                      <div className="mt-4 space-y-4 text-sm">
+                        <div>
+                          <label className="block text-white/80 mb-2">自訂「🎲 開始抽獎」音效 (MP3)</label>
+                          <input
+                            type="file"
+                            accept="audio/mpeg, audio/mp3"
+                            onChange={(e) => handleSoundFileChange('diceRoll', e)}
+                            className="w-full text-white text-xs"
+                          />
+                          <div className="mt-2 space-y-2 text-xs text-white/60">
+                            <div className="flex items-center justify-between">
+                              <span>{customSoundSources.diceRoll ? '已套用自訂音效' : '使用預設鼓聲'}</span>
+                              {customSoundSources.diceRoll && (
+                                <button
+                                  onClick={() => resetCustomSound('diceRoll')}
+                                  className="text-blue-300 hover:text-blue-100"
+                                >
+                                  恢復預設
+                                </button>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-white/60">或輸入線上/本地路徑</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={customSoundInputs.diceRoll}
+                                  onChange={(e) => handleSoundInputChange('diceRoll', e.target.value)}
+                                  placeholder="例如 ./sounds/drum-roll.mp3"
+                                  className="flex-1 rounded-md border border-white/30 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
+                                />
+                                <button
+                                  onClick={() => applyCustomSoundUrl('diceRoll')}
+                                  className="rounded-md bg-blue-600 px-3 py-1 text-white hover:bg-blue-500"
+                                >
+                                  套用
+                                </button>
+                              </div>
+                              {customSoundSources.diceRoll && !customSoundSources.diceRoll.startsWith('blob:') && (
+                                <div className="break-all text-[10px] text-white/50">
+                                  目前路徑：{customSoundSources.diceRoll}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-white/80 mb-2">自訂「恭喜中獎」音效 (MP3)</label>
+                          <input
+                            type="file"
+                            accept="audio/mpeg, audio/mp3"
+                            onChange={(e) => handleSoundFileChange('celebration', e)}
+                            className="w-full text-white text-xs"
+                          />
+                          <div className="mt-2 space-y-2 text-xs text-white/60">
+                            <div className="flex items-center justify-between">
+                              <span>{customSoundSources.celebration ? '已套用自訂音效' : '使用預設歡呼聲'}</span>
+                              {customSoundSources.celebration && (
+                                <button
+                                  onClick={() => resetCustomSound('celebration')}
+                                  className="text-blue-300 hover:text-blue-100"
+                                >
+                                  恢復預設
+                                </button>
+                              )}
+                            </div>
+                            <div className="space-y-1">
+                              <label className="block text-white/60">或輸入線上/本地路徑</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  value={customSoundInputs.celebration}
+                                  onChange={(e) => handleSoundInputChange('celebration', e.target.value)}
+                                  placeholder="例如 ./sounds/cheer.mp3"
+                                  className="flex-1 rounded-md border border-white/30 bg-white/10 px-2 py-1 text-white placeholder:text-white/40"
+                                />
+                                <button
+                                  onClick={() => applyCustomSoundUrl('celebration')}
+                                  className="rounded-md bg-blue-600 px-3 py-1 text-white hover:bg-blue-500"
+                                >
+                                  套用
+                                </button>
+                              </div>
+                              {customSoundSources.celebration && !customSoundSources.celebration.startsWith('blob:') && (
+                                <div className="break-all text-[10px] text-white/50">
+                                  目前路徑：{customSoundSources.celebration}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
