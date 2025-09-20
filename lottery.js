@@ -7,6 +7,7 @@ const LotterySystem = () => {
   const [drawCount, setDrawCount] = useState(6);
   const [currentNumbers, setCurrentNumbers] = useState([]);
   const [absentNumbers, setAbsentNumbers] = useState([]);
+  const [removedNumbers, setRemovedNumbers] = useState([]);
   const [allWinningNumbers, setAllWinningNumbers] = useState(new Set());
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawHistory, setDrawHistory] = useState([]);
@@ -50,17 +51,24 @@ const LotterySystem = () => {
       return;
     }
 
+    if (removedNumbers.length > 0) {
+      alert('仍有不在現場的號碼尚未確認，請先完成本輪抽獎。');
+      return;
+    }
+
     setIsDrawing(true);
     
     // 模擬抽獎動畫效果
     setTimeout(() => {
+      const excludeNumbers = new Set(allWinningNumbers);
+      removedNumbers.forEach(num => excludeNumbers.add(num));
       const newNumbers = generateRandomNumbers(
-        drawCount, 
-        minNumber, 
-        maxNumber, 
-        allWinningNumbers
+        drawCount,
+        minNumber,
+        maxNumber,
+        excludeNumbers
       );
-      
+
       if (newNumbers.length > 0) {
         setCurrentNumbers(newNumbers);
         setAbsentNumbers([]);
@@ -72,7 +80,8 @@ const LotterySystem = () => {
 
   // 標記缺席號碼
   const markAbsent = (number) => {
-    setAbsentNumbers(prev => [...prev, number]);
+    setAbsentNumbers(prev => (prev.includes(number) ? prev : [...prev, number]));
+    setRemovedNumbers(prev => (prev.includes(number) ? prev : [...prev, number]));
     setCurrentNumbers(prev => prev.filter(n => n !== number));
   };
 
@@ -84,11 +93,15 @@ const LotterySystem = () => {
     setIsDrawing(true);
     
     setTimeout(() => {
+      const excludeNumbers = new Set(allWinningNumbers);
+      removedNumbers.forEach(num => excludeNumbers.add(num));
+      absentNumbers.forEach(num => excludeNumbers.add(num));
+      currentNumbers.forEach(num => excludeNumbers.add(num));
       const newNumbers = generateRandomNumbers(
-        absentCount, 
-        minNumber, 
-        maxNumber, 
-        allWinningNumbers
+        absentCount,
+        minNumber,
+        maxNumber,
+        excludeNumbers
       );
       
       if (newNumbers.length > 0) {
@@ -108,7 +121,7 @@ const LotterySystem = () => {
     }
 
     const newWinners = [...currentNumbers];
-    const currentAbsent = [...absentNumbers];
+    const currentAbsent = [...removedNumbers];
     
     // 將中獎號碼加入已中獎集合
     newWinners.forEach(num => allWinningNumbers.add(num));
@@ -126,6 +139,7 @@ const LotterySystem = () => {
     setAllWinningNumbers(new Set(allWinningNumbers));
     setCurrentNumbers([]);
     setAbsentNumbers([]);
+    setRemovedNumbers([]);
     setCurrentRound(prev => prev + 1);
     
     const absentMessage = currentAbsent.length > 0 ? `\n不在現場號碼：${currentAbsent.join(', ')}（已從號碼池中移除）` : '';
@@ -137,6 +151,7 @@ const LotterySystem = () => {
     if (confirm('確定要重置所有抽獎記錄嗎？')) {
       setCurrentNumbers([]);
       setAbsentNumbers([]);
+      setRemovedNumbers([]);
       setAllWinningNumbers(new Set());
       setDrawHistory([]);
       setCurrentRound(1);
@@ -219,7 +234,7 @@ const LotterySystem = () => {
                 </div>
                 <div className="text-center">
                   <div className="text-white/80 text-sm mb-1">剩餘可抽號碼</div>
-                  <div className="text-3xl font-bold text-white">{maxNumber - minNumber + 1 - allWinningNumbers.size}</div>
+                  <div className="text-3xl font-bold text-white">{maxNumber - minNumber + 1 - new Set([...allWinningNumbers, ...removedNumbers]).size}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-white/80 text-sm mb-1">已完成輪次</div>

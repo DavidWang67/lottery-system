@@ -32,6 +32,9 @@
           const [showSettings, setShowSettings] = useState(false);
           const [soundEnabled, setSoundEnabled] = useState(true);
           const [showCelebration, setShowCelebration] = useState(false);
+          const [rerollingIndices, setRerollingIndices] = useState([]);
+          const [isRerolling, setIsRerolling] = useState(false);
+          const [removedNumbers, setRemovedNumbers] = useState([]);
           const celebrationTimeoutRef = useRef(null);
           const audioContextRef = useRef(null);
           const customAudioCacheRef = useRef({
@@ -312,13 +315,22 @@
               return;
             }
 
+            if (removedNumbers.length > 0) {
+              alert('仍有不在現場的號碼尚未確認，請先完成本輪抽獎。');
+              return;
+            }
+
             playSound('diceRoll'); // 播放鼓聲音效
             setIsDrawing(true);
-            
+
             setTimeout(() => {
-              const newNumbers = generateRandomNumbers(drawCount, minNumber, maxNumber, allWinningNumbers);
+              const excludeForDraw = new Set(allWinningNumbers);
+              removedNumbers.forEach(num => excludeForDraw.add(num));
+              const newNumbers = generateRandomNumbers(drawCount, minNumber, maxNumber, excludeForDraw);
               if (newNumbers.length > 0) {
                 setCurrentNumbers(newNumbers);
+                setRerollingIndices([]);
+                setIsRerolling(false);
                 setAbsentNumbers([]);
                 triggerCelebration();
                 playSound('celebration'); // 播放歡呼音效
@@ -327,28 +339,85 @@
             }, 2000); // 延長到2秒讓動畫完整播放
           };
 
-          const markAbsent = (number) => {
+          const markAbsent = (number, index) => {
+            if (number == null) return;
+
             playSound('absent'); // 播放缺席音效
-            setAbsentNumbers(prev => [...prev, number]);
-            setCurrentNumbers(prev => prev.filter(n => n !== number));
+            setAbsentNumbers(prev => (prev.includes(number) ? prev : [...prev, number]));
+            setRemovedNumbers(prev => (prev.includes(number) ? prev : [...prev, number]));
+            setCurrentNumbers(prev => {
+              const updated = [...prev];
+              const targetIndex = typeof index === 'number' ? index : updated.indexOf(number);
+              if (targetIndex !== -1) {
+                updated[targetIndex] = null;
+              }
+              return updated;
+            });
           };
 
           const redrawAbsent = () => {
-            const absentCount = absentNumbers.length;
-            if (absentCount === 0) return;
+            const slotsToFill = [];
+            currentNumbers.forEach((num, index) => {
+              if (num == null) {
+                slotsToFill.push(index);
+              }
+            });
+
+            if (slotsToFill.length === 0) {
+              return;
+            }
 
             playSound('diceRoll'); // 播放鼓聲音效
-            setIsDrawing(true);
+
+            setRerollingIndices(slotsToFill);
+            setIsRerolling(true);
+
             setTimeout(() => {
-              const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, allWinningNumbers);
+              const excludeNumbers = new Set(allWinningNumbers);
+              removedNumbers.forEach(num => excludeNumbers.add(num));
+              currentNumbers.forEach(num => {
+                if (num != null) {
+                  excludeNumbers.add(num);
+                }
+              });
+              absentNumbers.forEach(num => excludeNumbers.add(num));
+
+              const newNumbers = generateRandomNumbers(slotsToFill.length, minNumber, maxNumber, excludeNumbers);
               if (newNumbers.length > 0) {
-                setCurrentNumbers(prev => [...prev, ...newNumbers]);
+                setCurrentNumbers(prev => {
+                  const updated = [...prev];
+                  let replacementIndex = 0;
+                  for (let i = 0; i < updated.length && replacementIndex < newNumbers.length; i++) {
+                    if (updated[i] == null) {
+                      updated[i] = newNumbers[replacementIndex++];
+                    }
+                  }
+                  return updated;
+                });
                 setAbsentNumbers([]);
                 triggerCelebration();
                 playSound('celebration'); // 播放歡呼音效
               }
-              setIsDrawing(false);
+              setRerollingIndices([]);
+              setIsRerolling(false);
             }, 2000);
+          };
+
+          const cancelCurrentRound = () => {
+            if (isDrawing || isRerolling) {
+              return;
+            }
+
+            if (currentNumbers.length === 0 && removedNumbers.length === 0) {
+              return;
+            }
+
+            playSound('click');
+            setCurrentNumbers([]);
+            setAbsentNumbers([]);
+            setRemovedNumbers([]);
+            setRerollingIndices([]);
+            setIsRerolling(false);
           };
 
           const confirmWinners = () => {
@@ -357,15 +426,20 @@
               return;
             }
 
+            if (currentNumbers.some(num => num == null)) {
+              alert('仍有不在現場的號碼尚未重新抽取，請先重新抽取。');
+              return;
+            }
+
             playSound('confirm'); // 播放確認音效
 
             const newWinners = [...currentNumbers];
-            const currentAbsent = [...absentNumbers];
-            
+            const currentAbsent = [...removedNumbers];
+
             // 將中獎號碼和缺席號碼都加入已抽取集合
             newWinners.forEach(num => allWinningNumbers.add(num));
             currentAbsent.forEach(num => allWinningNumbers.add(num));
-            
+
             // 加入歷史記錄
             setDrawHistory(prev => [...prev, {
               round: currentRound,
@@ -373,12 +447,15 @@
               absentNumbers: [...currentAbsent],
               timestamp: new Date().toLocaleString('zh-TW')
             }]);
-            
+
             setAllWinningNumbers(new Set(allWinningNumbers));
             setCurrentNumbers([]);
             setAbsentNumbers([]);
+            setRerollingIndices([]);
+            setIsRerolling(false);
+            setRemovedNumbers([]);
             setCurrentRound(prev => prev + 1);
-            
+
             const absentMessage = currentAbsent.length > 0 ? `\n不在現場號碼：${currentAbsent.join(', ')}（已從號碼池中移除）` : '';
             alert(`第${currentRound}輪抽獎完成！中獎號碼：${newWinners.join(', ')}${absentMessage}`);
           };
@@ -390,8 +467,13 @@
               setAllWinningNumbers(new Set());
               setDrawHistory([]);
               setCurrentRound(1);
+              setRerollingIndices([]);
+              setIsRerolling(false);
+              setRemovedNumbers([]);
             }
           };
+
+          const hasPendingReroll = currentNumbers.some(num => num == null);
 
           return (
             <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
@@ -486,7 +568,7 @@
                         </div>
                         <div>
                           <div className="text-white/80 text-sm">剩餘可抽號碼</div>
-                          <div className="text-3xl font-bold text-white">{maxNumber - minNumber + 1 - allWinningNumbers.size}</div>
+                          <div className="text-3xl font-bold text-white">{maxNumber - minNumber + 1 - new Set([...allWinningNumbers, ...removedNumbers]).size}</div>
                         </div>
                         <div>
                           <div className="text-white/80 text-sm">已完成輪次</div>
@@ -504,13 +586,27 @@
                       <div className="text-center mb-8">
                         <button
                           onClick={() => {
-                            playSound('click');
-                            performDraw();
+                            if (hasPendingReroll) {
+                              redrawAbsent();
+                            } else {
+                              playSound('click');
+                              performDraw();
+                            }
                           }}
-                          disabled={isDrawing}
+                          disabled={isDrawing || isRerolling}
                           className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg transform hover:scale-105 transition-all duration-200"
                         >
-                          {isDrawing ? (
+                          {hasPendingReroll ? (
+                            isRerolling ? (
+                              <div className="flex items-center gap-3">
+                                <div className="animate-bounce">🎲</div>
+                                <span>重新抽取中...</span>
+                                <div className="animate-bounce" style={{animationDelay: '0.1s'}}>🎲</div>
+                              </div>
+                            ) : (
+                              '🔄 重新抽取'
+                            )
+                          ) : isDrawing ? (
                             <div className="flex items-center gap-3">
                               <div className="animate-bounce">🎲</div>
                               <span>抽獎中...</span>
@@ -550,33 +646,60 @@
                             </div>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
-                            {currentNumbers.map((number, index) => (
+                            {currentNumbers.map((number, index) => {
+                              const isSlotRerolling = rerollingIndices.includes(index);
+                              return (
                               <div
                                 key={index}
                                 className={`relative ${showCelebration ? 'animate-bounce' : ''}`}
                                 style={{animationDelay: `${index * 0.1}s`, animationDuration: '1s'}}
                               >
-                                <div className={`bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all ${showCelebration ? 'animate-pulse' : ''}`}>
-                                  <div className="text-3xl font-bold text-white">{number}</div>
+                                <div className={`bg-gradient-to-r ${number != null ? 'from-yellow-400 to-orange-500' : 'from-gray-500 to-gray-600'} rounded-lg p-6 text-center shadow-lg transform ${number != null ? 'hover:scale-105' : ''} transition-all ${showCelebration ? 'animate-pulse' : ''}`}>
+                                  {number != null ? (
+                                    <div className="text-3xl font-bold text-white">{number}</div>
+                                  ) : isSlotRerolling ? (
+                                    <div className="flex flex-col items-center gap-2 text-white">
+                                      <div className="text-4xl animate-spin">🎲</div>
+                                      <div className="text-sm tracking-widest">重新抽取中</div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-3xl font-bold text-white">待抽取</div>
+                                  )}
                                 </div>
-                                <button
-                                  onClick={() => markAbsent(number)}
-                                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 text-sm font-bold shadow-lg"
-                                  title="標記為不在現場"
-                                >
-                                  ×
-                                </button>
+                                {number != null && (
+                                  <button
+                                    onClick={() => markAbsent(number, index)}
+                                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 text-sm font-bold shadow-lg"
+                                    title="標記為不在現場"
+                                  >
+                                    ×
+                                  </button>
+                                )}
                               </div>
-                            ))}
+                            );
+                            })}
                           </div>
-                          
-                          <div className="text-center">
-                            <button
-                              onClick={confirmWinners}
-                              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
-                            >
-                              🏆 確認中獎
-                            </button>
+
+                          <div className="text-center space-y-3">
+                            <div className="flex flex-col sm:flex-row justify-center items-center gap-3">
+                              <button
+                                onClick={confirmWinners}
+                                disabled={currentNumbers.some(num => num == null) || isDrawing || isRerolling}
+                                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
+                              >
+                                🏆 確認中獎
+                              </button>
+                              <button
+                                onClick={cancelCurrentRound}
+                                disabled={isDrawing || isRerolling || (currentNumbers.length === 0 && removedNumbers.length === 0)}
+                                className="bg-gray-500 hover:bg-gray-600 disabled:opacity-50 text-white font-semibold py-3 px-6 rounded-lg"
+                              >
+                                ⏹️ 取消本輪
+                              </button>
+                            </div>
+                            {currentNumbers.some(num => num == null) && (
+                              <p className="text-sm text-white/70">請先重新抽取缺席的號碼以填滿空缺。</p>
+                            )}
                           </div>
                         </div>
                       )}
@@ -592,34 +715,19 @@
                 </div>
 
                 {/* 缺席號碼區域 */}
-                {absentNumbers.length > 0 && (
+                {(removedNumbers.length > 0 || hasPendingReroll) && (
                   <div className="bg-red-500/20 backdrop-blur-md rounded-xl p-6 mb-6 border border-red-500/30">
                     <h2 className="text-xl font-semibold text-white mb-4">不在現場號碼</h2>
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
-                      {absentNumbers.map((number, index) => (
+                      {removedNumbers.map((number, index) => (
                         <div key={index} className="bg-red-500 rounded-lg p-4 text-center shadow-lg">
                           <div className="text-2xl font-bold text-white">{number}</div>
                         </div>
                       ))}
                     </div>
-                    <div className="text-center">
-                      <button
-                        onClick={redrawAbsent}
-                        disabled={isDrawing}
-                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 px-6 rounded-lg flex items-center gap-2 mx-auto"
-                      >
-                        {isDrawing ? (
-                          <>
-                            <div className="animate-spin">🎲</div>
-                            重新抽取中...
-                          </>
-                        ) : (
-                          <>
-                            🔄 重新抽取
-                          </>
-                        )}
-                      </button>
-                    </div>
+                    {hasPendingReroll && (
+                      <p className="text-center text-white/80">請使用上方按鈕重新抽取缺席的號碼。</p>
+                    )}
                   </div>
                 )}
 
