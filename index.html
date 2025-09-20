@@ -12,7 +12,12 @@
 <body>
     <div id="root"></div>
     <script type="text/babel">
-        const { useState } = React;
+        const { useState, useRef, useEffect } = React;
+
+        const CUSTOM_AUDIO_FILES = {
+          diceRoll: './custom-dice-roll.mp3',
+          celebration: './custom-celebration.mp3',
+        };
 
         const LotterySystem = () => {
           const [minNumber, setMinNumber] = useState(1);
@@ -26,86 +31,262 @@
           const [currentRound, setCurrentRound] = useState(1);
           const [showSettings, setShowSettings] = useState(false);
           const [soundEnabled, setSoundEnabled] = useState(true);
+          const [showCelebration, setShowCelebration] = useState(false);
+          const celebrationTimeoutRef = useRef(null);
+          const audioContextRef = useRef(null);
+          const customAudioCacheRef = useRef({
+            diceRoll: null,
+            celebration: null,
+          });
+          const customAudioStatusRef = useRef({
+            diceRoll: 'unknown',
+            celebration: 'unknown',
+          });
+
+          useEffect(() => {
+            return () => {
+              if (celebrationTimeoutRef.current) {
+                clearTimeout(celebrationTimeoutRef.current);
+              }
+            };
+          }, []);
+
+          const triggerCelebration = () => {
+            if (celebrationTimeoutRef.current) {
+              clearTimeout(celebrationTimeoutRef.current);
+            }
+            setShowCelebration(true);
+            celebrationTimeoutRef.current = setTimeout(() => {
+              setShowCelebration(false);
+            }, 2000);
+          };
+
+          useEffect(() => {
+            return () => {
+              Object.values(customAudioCacheRef.current).forEach((audio) => {
+                if (audio) {
+                  try {
+                    audio.pause();
+                  } catch (error) {
+                    console.warn('清理自訂音效時發生錯誤：', error);
+                  }
+                }
+              });
+              if (audioContextRef.current) {
+                audioContextRef.current.close().catch(() => {});
+                audioContextRef.current = null;
+              }
+            };
+          }, []);
+
+          const getAudioContext = () => {
+            if (!audioContextRef.current) {
+              audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioContextRef.current.state === 'suspended') {
+              audioContextRef.current.resume().catch(() => {});
+            }
+            return audioContextRef.current;
+          };
+
+          const playCustomAudio = (type, fallback) => {
+            const path = CUSTOM_AUDIO_FILES[type];
+            if (!path) return false;
+
+            if (customAudioStatusRef.current[type] === 'unavailable') {
+              return false;
+            }
+
+            let audio = customAudioCacheRef.current[type];
+            if (!audio) {
+              audio = new Audio(path);
+              customAudioCacheRef.current[type] = audio;
+            }
+
+            try {
+              audio.currentTime = 0;
+              const playPromise = audio.play();
+              customAudioStatusRef.current[type] = 'available';
+
+              if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch((error) => {
+                  console.warn(`播放自訂音效失敗 (${path})，改用預設音效。`, error);
+                  customAudioStatusRef.current[type] = 'unavailable';
+                  customAudioCacheRef.current[type] = null;
+                  if (typeof fallback === 'function') {
+                    fallback();
+                  }
+                });
+              }
+
+              return true;
+            } catch (error) {
+              console.warn(`播放自訂音效失敗 (${path})，改用預設音效。`, error);
+              customAudioStatusRef.current[type] = 'unavailable';
+              customAudioCacheRef.current[type] = null;
+              return false;
+            }
+          };
 
           // 音效功能
           const playSound = (type) => {
             if (!soundEnabled) return;
-            
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
-            const createNoise = (duration) => {
-              const bufferSize = audioContext.sampleRate * duration;
-              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
-              const output = buffer.getChannelData(0);
-              
-              for (let i = 0; i < bufferSize; i++) {
-                output[i] = (Math.random() * 2 - 1) * 0.1;
-              }
-              
-              const noise = audioContext.createBufferSource();
-              const filter = audioContext.createBiquadFilter();
-              const gainNode = audioContext.createGain();
-              
-              noise.buffer = buffer;
-              filter.type = 'bandpass';
-              filter.frequency.setValueAtTime(400, audioContext.currentTime);
-              
-              noise.connect(filter);
-              filter.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-              
-              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-              
-              noise.start(audioContext.currentTime);
-              noise.stop(audioContext.currentTime + duration);
-            };
 
-            const createBeep = (frequency, duration, type = 'sine') => {
-              const oscillator = audioContext.createOscillator();
-              const gainNode = audioContext.createGain();
-              
-              oscillator.connect(gainNode);
-              gainNode.connect(audioContext.destination);
-              
-              oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
-              oscillator.type = type;
-              
-              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-              
-              oscillator.start(audioContext.currentTime);
-              oscillator.stop(audioContext.currentTime + duration);
-            };
+            const playGeneratedSound = () => {
+              const audioContext = getAudioContext();
 
-            switch(type) {
-              case 'diceRoll':
-                // 骰子滾動音效 - 短促的噪音爆發
-                for (let i = 0; i < 8; i++) {
-                  setTimeout(() => createNoise(0.1), i * 100);
+              const createBeep = (frequency, duration, waveType = 'sine') => {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+                oscillator.type = waveType;
+
+                gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+
+                oscillator.start(audioContext.currentTime);
+                oscillator.stop(audioContext.currentTime + duration);
+              };
+
+              const createDrumRoll = () => {
+                const duration = 2;
+                const bufferSize = audioContext.sampleRate * duration;
+                const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const output = buffer.getChannelData(0);
+
+                for (let i = 0; i < bufferSize; i++) {
+                  const progress = i / bufferSize;
+                  const tremolo = Math.sin(progress * Math.PI * 16);
+                  const crescendo = Math.pow(progress, 2);
+                  output[i] = (Math.random() * 2 - 1) * 0.35 * (0.4 + 0.6 * tremolo) * (0.2 + 0.8 * crescendo);
                 }
-                break;
-              case 'celebration':
-                // 慶祝音效 - 歡樂的上升音階
-                const celebrationNotes = [523, 659, 784, 1047, 1319]; // C-E-G-C-E
-                celebrationNotes.forEach((note, index) => {
-                  setTimeout(() => createBeep(note, 0.3), index * 150);
-                });
-                break;
-              case 'absent':
-                // 缺席音效 - 低沉音
-                createBeep(220, 0.3, 'sawtooth');
-                break;
-              case 'confirm':
-                // 確認音效 - 成功音
-                createBeep(800, 0.1);
-                setTimeout(() => createBeep(1000, 0.2), 100);
-                break;
-              case 'click':
-                // 點擊音效
-                createBeep(800, 0.05);
-                break;
+
+                const noise = audioContext.createBufferSource();
+                const filter = audioContext.createBiquadFilter();
+                const gainNode = audioContext.createGain();
+
+                noise.buffer = buffer;
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(900, audioContext.currentTime);
+                filter.Q.setValueAtTime(0.7, audioContext.currentTime);
+
+                noise.connect(filter);
+                filter.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                const now = audioContext.currentTime;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.5, now + 1.8);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+                noise.start(now);
+                noise.stop(now + duration);
+
+                const accentOsc = audioContext.createOscillator();
+                const accentGain = audioContext.createGain();
+
+                accentOsc.connect(accentGain);
+                accentGain.connect(audioContext.destination);
+
+                const accentStart = now + 1.8;
+                accentOsc.type = 'sine';
+                accentOsc.frequency.setValueAtTime(160, accentStart);
+                accentOsc.frequency.exponentialRampToValueAtTime(90, accentStart + 0.25);
+
+                accentGain.gain.setValueAtTime(0.001, accentStart);
+                accentGain.gain.exponentialRampToValueAtTime(0.5, accentStart + 0.05);
+                accentGain.gain.exponentialRampToValueAtTime(0.01, accentStart + 0.4);
+
+                accentOsc.start(accentStart);
+                accentOsc.stop(accentStart + 0.5);
+              };
+
+              const createCheer = () => {
+                const duration = 1.8;
+                const bufferSize = audioContext.sampleRate * duration;
+                const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+                const output = buffer.getChannelData(0);
+
+                for (let i = 0; i < bufferSize; i++) {
+                  const progress = i / bufferSize;
+                  const swell = Math.sin(progress * Math.PI);
+                  output[i] = (Math.random() * 2 - 1) * 0.25 * swell;
+                }
+
+                const crowd = audioContext.createBufferSource();
+                const bandpass = audioContext.createBiquadFilter();
+                const gainNode = audioContext.createGain();
+
+                crowd.buffer = buffer;
+                bandpass.type = 'bandpass';
+                bandpass.frequency.setValueAtTime(1500, audioContext.currentTime);
+                bandpass.Q.setValueAtTime(1.2, audioContext.currentTime);
+
+                crowd.connect(bandpass);
+                bandpass.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                const now = audioContext.currentTime;
+                gainNode.gain.setValueAtTime(0.0001, now);
+                gainNode.gain.exponentialRampToValueAtTime(0.5, now + 0.2);
+                gainNode.gain.setValueAtTime(0.5, now + 1.2);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration);
+
+                crowd.start(now);
+                crowd.stop(now + duration);
+
+                const whoopOsc = audioContext.createOscillator();
+                const whoopGain = audioContext.createGain();
+
+                whoopOsc.connect(whoopGain);
+                whoopGain.connect(audioContext.destination);
+
+                whoopOsc.type = 'triangle';
+                whoopOsc.frequency.setValueAtTime(650, now);
+                whoopOsc.frequency.linearRampToValueAtTime(980, now + 0.5);
+                whoopOsc.frequency.linearRampToValueAtTime(720, now + 1.1);
+
+                whoopGain.gain.setValueAtTime(0.0001, now);
+                whoopGain.gain.exponentialRampToValueAtTime(0.4, now + 0.1);
+                whoopGain.gain.exponentialRampToValueAtTime(0.01, now + 1.2);
+
+                whoopOsc.start(now);
+                whoopOsc.stop(now + 1.3);
+
+                setTimeout(() => createBeep(1200, 0.15), 200);
+                setTimeout(() => createBeep(1400, 0.15), 350);
+                setTimeout(() => createBeep(1600, 0.15), 500);
+              };
+
+              switch(type) {
+                case 'diceRoll':
+                  createDrumRoll();
+                  break;
+                case 'celebration':
+                  createCheer();
+                  break;
+                case 'absent':
+                  createBeep(220, 0.3, 'sawtooth');
+                  break;
+                case 'confirm':
+                  createBeep(800, 0.1);
+                  setTimeout(() => createBeep(1000, 0.2), 100);
+                  break;
+                case 'click':
+                  createBeep(800, 0.05);
+                  break;
+              }
+            };
+
+            if ((type === 'diceRoll' || type === 'celebration') && playCustomAudio(type, playGeneratedSound)) {
+              return;
             }
+
+            playGeneratedSound();
           };
 
           const generateRandomNumbers = (count, min, max, exclude = new Set()) => {
@@ -131,7 +312,7 @@
               return;
             }
 
-            playSound('diceRoll'); // 播放骰子滾動音效
+            playSound('diceRoll'); // 播放鼓聲音效
             setIsDrawing(true);
             
             setTimeout(() => {
@@ -139,7 +320,8 @@
               if (newNumbers.length > 0) {
                 setCurrentNumbers(newNumbers);
                 setAbsentNumbers([]);
-                playSound('celebration'); // 播放慶祝音效
+                triggerCelebration();
+                playSound('celebration'); // 播放歡呼音效
               }
               setIsDrawing(false);
             }, 2000); // 延長到2秒讓動畫完整播放
@@ -155,14 +337,15 @@
             const absentCount = absentNumbers.length;
             if (absentCount === 0) return;
 
-            playSound('diceRoll'); // 播放骰子滾動音效
+            playSound('diceRoll'); // 播放鼓聲音效
             setIsDrawing(true);
             setTimeout(() => {
               const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, allWinningNumbers);
               if (newNumbers.length > 0) {
                 setCurrentNumbers(prev => [...prev, ...newNumbers]);
                 setAbsentNumbers([]);
-                playSound('celebration'); // 播放慶祝音效
+                triggerCelebration();
+                playSound('celebration'); // 播放歡呼音效
               }
               setIsDrawing(false);
             }, 2000);
@@ -361,19 +544,19 @@
                       {currentNumbers.length > 0 && !isDrawing && (
                         <div className="mb-6">
                           <div className="text-center mb-4">
-                            <div className="text-3xl animate-bounce">🎉</div>
-                            <div className="text-white text-xl font-bold animate-pulse">
+                            <div className={`text-3xl ${showCelebration ? 'animate-bounce' : ''}`}>🎉</div>
+                            <div className={`text-white text-xl font-bold ${showCelebration ? 'animate-pulse' : ''}`}>
                               恭喜中獎！
                             </div>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
                             {currentNumbers.map((number, index) => (
-                              <div 
-                                key={index} 
-                                className="relative animate-bounce" 
+                              <div
+                                key={index}
+                                className={`relative ${showCelebration ? 'animate-bounce' : ''}`}
                                 style={{animationDelay: `${index * 0.1}s`, animationDuration: '1s'}}
                               >
-                                <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all animate-pulse">
+                                <div className={`bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all ${showCelebration ? 'animate-pulse' : ''}`}>
                                   <div className="text-3xl font-bold text-white">{number}</div>
                                 </div>
                                 <button
