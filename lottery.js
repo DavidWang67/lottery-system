@@ -5,6 +5,9 @@ const LotterySystem = () => {
   const [minNumber, setMinNumber] = useState(1);
   const [maxNumber, setMaxNumber] = useState(1000);
   const [drawCount, setDrawCount] = useState(6);
+  const [minNumberInput, setMinNumberInput] = useState('1');
+  const [maxNumberInput, setMaxNumberInput] = useState('1000');
+  const [drawCountInput, setDrawCountInput] = useState('6');
   const [currentNumbers, setCurrentNumbers] = useState([]);
   const [absentNumbers, setAbsentNumbers] = useState([]);
   const [removedNumbers, setRemovedNumbers] = useState([]);
@@ -158,6 +161,34 @@ const LotterySystem = () => {
     }
   };
 
+  const handleNumberInputChange = (value, setInput, setValue) => {
+    setInput(value);
+
+    const parsed = parseInt(value, 10);
+    if (!Number.isNaN(parsed)) {
+      setValue(Math.max(1, parsed));
+    }
+  };
+
+  const handleNumberInputBlur = (inputValue, defaultValue, setInput, setValue) => {
+    const trimmed = inputValue.trim();
+    if (trimmed === '') {
+      setInput(String(defaultValue));
+      setValue(defaultValue);
+      return;
+    }
+
+    const parsed = parseInt(trimmed, 10);
+    if (Number.isNaN(parsed) || parsed < 1) {
+      setInput(String(defaultValue));
+      setValue(defaultValue);
+    } else {
+      const normalized = String(parsed);
+      setInput(normalized);
+      setValue(parsed);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
       <div className="max-w-6xl mx-auto">
@@ -195,8 +226,9 @@ const LotterySystem = () => {
                     <label className="block text-white/80 text-sm font-medium mb-2">最小號碼</label>
                     <input
                       type="number"
-                      value={minNumber}
-                      onChange={(e) => setMinNumber(parseInt(e.target.value) || 1)}
+                      value={minNumberInput}
+                      onChange={(e) => handleNumberInputChange(e.target.value, setMinNumberInput, setMinNumber)}
+                      onBlur={() => handleNumberInputBlur(minNumberInput, 1, setMinNumberInput, setMinNumber)}
                       className="w-full px-3 py-2 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
                       min="1"
                     />
@@ -205,8 +237,9 @@ const LotterySystem = () => {
                     <label className="block text-white/80 text-sm font-medium mb-2">最大號碼</label>
                     <input
                       type="number"
-                      value={maxNumber}
-                      onChange={(e) => setMaxNumber(parseInt(e.target.value) || 1000)}
+                      value={maxNumberInput}
+                      onChange={(e) => handleNumberInputChange(e.target.value, setMaxNumberInput, setMaxNumber)}
+                      onBlur={() => handleNumberInputBlur(maxNumberInput, 1, setMaxNumberInput, setMaxNumber)}
                       className="w-full px-3 py-2 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
                       min="1"
                     />
@@ -215,8 +248,9 @@ const LotterySystem = () => {
                     <label className="block text-white/80 text-sm font-medium mb-2">抽獎數量</label>
                     <input
                       type="number"
-                      value={drawCount}
-                      onChange={(e) => setDrawCount(parseInt(e.target.value) || 6)}
+                      value={drawCountInput}
+                      onChange={(e) => handleNumberInputChange(e.target.value, setDrawCountInput, setDrawCount)}
+                      onBlur={() => handleNumberInputBlur(drawCountInput, 1, setDrawCountInput, setDrawCount)}
                       className="w-full px-3 py-2 bg-white/20 border border-white/30 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-blue-400"
                       min="1"
                     />
