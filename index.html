@@ -8,6 +8,12 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .animate-for-3s {
+        animation-duration: 3s !important;
+        animation-iteration-count: 1 !important;
+      }
+    </style>
 </head>
 <body>
     <div id="root"></div>
@@ -329,9 +335,9 @@
                         >
                           {isDrawing ? (
                             <div className="flex items-center gap-3">
-                              <div className="animate-bounce">🎲</div>
+                              <div className="animate-bounce animate-for-3s">🎲</div>
                               <span>抽獎中...</span>
-                              <div className="animate-bounce" style={{animationDelay: '0.1s'}}>🎲</div>
+                              <div className="animate-bounce animate-for-3s" style={{animationDelay: '0.1s'}}>🎲</div>
                             </div>
                           ) : (
                             '🎲 開始抽獎'
@@ -361,19 +367,19 @@
                       {currentNumbers.length > 0 && !isDrawing && (
                         <div className="mb-6">
                           <div className="text-center mb-4">
-                            <div className="text-3xl animate-bounce">🎉</div>
-                            <div className="text-white text-xl font-bold animate-pulse">
+                            <div className="text-3xl animate-bounce animate-for-3s">🎉</div>
+                            <div className="text-white text-xl font-bold animate-pulse animate-for-3s">
                               恭喜中獎！
                             </div>
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
                             {currentNumbers.map((number, index) => (
-                              <div 
-                                key={index} 
-                                className="relative animate-bounce" 
-                                style={{animationDelay: `${index * 0.1}s`, animationDuration: '1s'}}
+                              <div
+                                key={index}
+                                className="relative animate-bounce animate-for-3s"
+                                style={{animationDelay: `${index * 0.1}s`}}
                               >
-                                <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all animate-pulse">
+                                <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all animate-pulse animate-for-3s">
                                   <div className="text-3xl font-bold text-white">{number}</div>
                                 </div>
                                 <button
@@ -390,7 +396,7 @@
                           <div className="text-center">
                             <button
                               onClick={confirmWinners}
-                              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
+                              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg animate-pulse animate-for-3s"
                             >
                               🏆 確認中獎
                             </button>
