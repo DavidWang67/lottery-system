@@ -327,10 +327,19 @@
             }, 2000); // 延長到2秒讓動畫完整播放
           };
 
-          const markAbsent = (number) => {
+          const markAbsent = (number, index) => {
+            if (number == null) return;
+
             playSound('absent'); // 播放缺席音效
-            setAbsentNumbers(prev => [...prev, number]);
-            setCurrentNumbers(prev => prev.filter(n => n !== number));
+            setAbsentNumbers(prev => (prev.includes(number) ? prev : [...prev, number]));
+            setCurrentNumbers(prev => {
+              const updated = [...prev];
+              const targetIndex = typeof index === 'number' ? index : updated.indexOf(number);
+              if (targetIndex !== -1) {
+                updated[targetIndex] = null;
+              }
+              return updated;
+            });
           };
 
           const redrawAbsent = () => {
@@ -341,14 +350,24 @@
             setIsDrawing(true);
             setTimeout(() => {
               const excludeNumbers = new Set(allWinningNumbers);
-              currentNumbers.forEach(num => excludeNumbers.add(num));
+              currentNumbers.forEach(num => {
+                if (num != null) {
+                  excludeNumbers.add(num);
+                }
+              });
               absentNumbers.forEach(num => excludeNumbers.add(num));
 
               const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, excludeNumbers);
               if (newNumbers.length > 0) {
                 setCurrentNumbers(prev => {
-                  const combinedNumbers = [...prev, ...newNumbers];
-                  return combinedNumbers.sort((a, b) => a - b);
+                  const updated = [...prev];
+                  let replacementIndex = 0;
+                  for (let i = 0; i < updated.length && replacementIndex < newNumbers.length; i++) {
+                    if (updated[i] == null) {
+                      updated[i] = newNumbers[replacementIndex++];
+                    }
+                  }
+                  return updated;
                 });
                 setAbsentNumbers([]);
                 triggerCelebration();
@@ -361,6 +380,11 @@
           const confirmWinners = () => {
             if (currentNumbers.length === 0) {
               alert('請先進行抽獎');
+              return;
+            }
+
+            if (currentNumbers.some(num => num == null)) {
+              alert('仍有不在現場的號碼尚未重新抽取，請先重新抽取。');
               return;
             }
 
@@ -563,27 +587,33 @@
                                 className={`relative ${showCelebration ? 'animate-bounce' : ''}`}
                                 style={{animationDelay: `${index * 0.1}s`, animationDuration: '1s'}}
                               >
-                                <div className={`bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all ${showCelebration ? 'animate-pulse' : ''}`}>
-                                  <div className="text-3xl font-bold text-white">{number}</div>
+                                <div className={`bg-gradient-to-r ${number != null ? 'from-yellow-400 to-orange-500' : 'from-gray-500 to-gray-600'} rounded-lg p-6 text-center shadow-lg transform ${number != null ? 'hover:scale-105' : ''} transition-all ${showCelebration ? 'animate-pulse' : ''}`}>
+                                  <div className="text-3xl font-bold text-white">{number != null ? number : '待抽取'}</div>
                                 </div>
-                                <button
-                                  onClick={() => markAbsent(number)}
-                                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 text-sm font-bold shadow-lg"
-                                  title="標記為不在現場"
-                                >
-                                  ×
-                                </button>
+                                {number != null && (
+                                  <button
+                                    onClick={() => markAbsent(number, index)}
+                                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 text-sm font-bold shadow-lg"
+                                    title="標記為不在現場"
+                                  >
+                                    ×
+                                  </button>
+                                )}
                               </div>
                             ))}
                           </div>
-                          
+
                           <div className="text-center">
                             <button
                               onClick={confirmWinners}
-                              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
+                              disabled={currentNumbers.some(num => num == null)}
+                              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
                             >
                               🏆 確認中獎
                             </button>
+                            {currentNumbers.some(num => num == null) && (
+                              <p className="text-sm text-white/70 mt-2">請先重新抽取缺席的號碼以填滿空缺。</p>
+                            )}
                           </div>
                         </div>
                       )}
