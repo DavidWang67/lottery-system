@@ -403,6 +403,23 @@
             }, 2000);
           };
 
+          const cancelCurrentRound = () => {
+            if (isDrawing || isRerolling) {
+              return;
+            }
+
+            if (currentNumbers.length === 0 && removedNumbers.length === 0) {
+              return;
+            }
+
+            playSound('click');
+            setCurrentNumbers([]);
+            setAbsentNumbers([]);
+            setRemovedNumbers([]);
+            setRerollingIndices([]);
+            setIsRerolling(false);
+          };
+
           const confirmWinners = () => {
             if (currentNumbers.length === 0) {
               alert('請先進行抽獎');
@@ -569,13 +586,27 @@
                       <div className="text-center mb-8">
                         <button
                           onClick={() => {
-                            playSound('click');
-                            performDraw();
+                            if (hasPendingReroll) {
+                              redrawAbsent();
+                            } else {
+                              playSound('click');
+                              performDraw();
+                            }
                           }}
                           disabled={isDrawing || isRerolling}
                           className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg transform hover:scale-105 transition-all duration-200"
                         >
-                          {isDrawing ? (
+                          {hasPendingReroll ? (
+                            isRerolling ? (
+                              <div className="flex items-center gap-3">
+                                <div className="animate-bounce">🎲</div>
+                                <span>重新抽取中...</span>
+                                <div className="animate-bounce" style={{animationDelay: '0.1s'}}>🎲</div>
+                              </div>
+                            ) : (
+                              '🔄 重新抽取'
+                            )
+                          ) : isDrawing ? (
                             <div className="flex items-center gap-3">
                               <div className="animate-bounce">🎲</div>
                               <span>抽獎中...</span>
@@ -649,16 +680,25 @@
                             })}
                           </div>
 
-                          <div className="text-center">
-                            <button
-                              onClick={confirmWinners}
-                              disabled={currentNumbers.some(num => num == null)}
-                              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
-                            >
-                              🏆 確認中獎
-                            </button>
+                          <div className="text-center space-y-3">
+                            <div className="flex flex-col sm:flex-row justify-center items-center gap-3">
+                              <button
+                                onClick={confirmWinners}
+                                disabled={currentNumbers.some(num => num == null) || isDrawing || isRerolling}
+                                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
+                              >
+                                🏆 確認中獎
+                              </button>
+                              <button
+                                onClick={cancelCurrentRound}
+                                disabled={isDrawing || isRerolling || (currentNumbers.length === 0 && removedNumbers.length === 0)}
+                                className="bg-gray-500 hover:bg-gray-600 disabled:opacity-50 text-white font-semibold py-3 px-6 rounded-lg"
+                              >
+                                ⏹️ 取消本輪
+                              </button>
+                            </div>
                             {currentNumbers.some(num => num == null) && (
-                              <p className="text-sm text-white/70 mt-2">請先重新抽取缺席的號碼以填滿空缺。</p>
+                              <p className="text-sm text-white/70">請先重新抽取缺席的號碼以填滿空缺。</p>
                             )}
                           </div>
                         </div>
@@ -685,37 +725,9 @@
                         </div>
                       ))}
                     </div>
-                    <div className="text-center">
-                      <button
-                        onClick={redrawAbsent}
-                        disabled={
-                          isDrawing ||
-                          isRerolling ||
-                          !hasPendingReroll
-                        }
-                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 px-6 rounded-lg flex items-center gap-2 mx-auto"
-                      >
-                        {isRerolling ? (
-                          <>
-                            <div className="animate-spin">🎲</div>
-                            重新抽取中...
-                          </>
-                        ) : isDrawing ? (
-                          <>
-                            <div className="animate-spin">🎲</div>
-                            重新抽取中...
-                          </>
-                        ) : hasPendingReroll ? (
-                          <>
-                            🔄 重新抽取
-                          </>
-                        ) : (
-                          <>
-                            已完成重新抽取
-                          </>
-                        )}
-                      </button>
-                    </div>
+                    {hasPendingReroll && (
+                      <p className="text-center text-white/80">請使用上方按鈕重新抽取缺席的號碼。</p>
+                    )}
                   </div>
                 )}
 
