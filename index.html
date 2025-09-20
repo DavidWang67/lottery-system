@@ -8,10 +8,492 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 </head>
 <body>
     <div id="root"></div>
-    <script type="text/babel" src="lottery.js"></script>
+    <script type="text/babel">
+        const { useState } = React;
+
+        const LotterySystem = () => {
+          const [minNumber, setMinNumber] = useState(1);
+          const [maxNumber, setMaxNumber] = useState(1000);
+          const [drawCount, setDrawCount] = useState(6);
+          const [currentNumbers, setCurrentNumbers] = useState([]);
+          const [absentNumbers, setAbsentNumbers] = useState([]);
+          const [allWinningNumbers, setAllWinningNumbers] = useState(new Set());
+          const [isDrawing, setIsDrawing] = useState(false);
+          const [drawHistory, setDrawHistory] = useState([]);
+          const [currentRound, setCurrentRound] = useState(1);
+          const [showSettings, setShowSettings] = useState(false);
+          const [soundEnabled, setSoundEnabled] = useState(true);
+
+          // 音效功能
+          const playSound = (type) => {
+            if (!soundEnabled) return;
+            
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            const createNoise = (duration) => {
+              const bufferSize = audioContext.sampleRate * duration;
+              const buffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+              const output = buffer.getChannelData(0);
+              
+              for (let i = 0; i < bufferSize; i++) {
+                output[i] = (Math.random() * 2 - 1) * 0.1;
+              }
+              
+              const noise = audioContext.createBufferSource();
+              const filter = audioContext.createBiquadFilter();
+              const gainNode = audioContext.createGain();
+              
+              noise.buffer = buffer;
+              filter.type = 'bandpass';
+              filter.frequency.setValueAtTime(400, audioContext.currentTime);
+              
+              noise.connect(filter);
+              filter.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+              
+              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+              
+              noise.start(audioContext.currentTime);
+              noise.stop(audioContext.currentTime + duration);
+            };
+
+            const createBeep = (frequency, duration, type = 'sine') => {
+              const oscillator = audioContext.createOscillator();
+              const gainNode = audioContext.createGain();
+              
+              oscillator.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+              
+              oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+              oscillator.type = type;
+              
+              gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+              
+              oscillator.start(audioContext.currentTime);
+              oscillator.stop(audioContext.currentTime + duration);
+            };
+
+            switch(type) {
+              case 'diceRoll':
+                // 骰子滾動音效 - 短促的噪音爆發
+                for (let i = 0; i < 8; i++) {
+                  setTimeout(() => createNoise(0.1), i * 100);
+                }
+                break;
+              case 'celebration':
+                // 慶祝音效 - 歡樂的上升音階
+                const celebrationNotes = [523, 659, 784, 1047, 1319]; // C-E-G-C-E
+                celebrationNotes.forEach((note, index) => {
+                  setTimeout(() => createBeep(note, 0.3), index * 150);
+                });
+                break;
+              case 'absent':
+                // 缺席音效 - 低沉音
+                createBeep(220, 0.3, 'sawtooth');
+                break;
+              case 'confirm':
+                // 確認音效 - 成功音
+                createBeep(800, 0.1);
+                setTimeout(() => createBeep(1000, 0.2), 100);
+                break;
+              case 'click':
+                // 點擊音效
+                createBeep(800, 0.05);
+                break;
+            }
+          };
+
+          const generateRandomNumbers = (count, min, max, exclude = new Set()) => {
+            const availableNumbers = [];
+            for (let i = min; i <= max; i++) {
+              if (!exclude.has(i)) {
+                availableNumbers.push(i);
+              }
+            }
+            
+            if (availableNumbers.length < count) {
+              alert(`可用號碼不足！剩餘可抽號碼：${availableNumbers.length}個`);
+              return [];
+            }
+            
+            const shuffled = [...availableNumbers].sort(() => Math.random() - 0.5);
+            return shuffled.slice(0, count).sort((a, b) => a - b);
+          };
+
+          const performDraw = () => {
+            if (minNumber >= maxNumber || drawCount <= 0) {
+              alert('請確認設定');
+              return;
+            }
+
+            playSound('diceRoll'); // 播放骰子滾動音效
+            setIsDrawing(true);
+            
+            setTimeout(() => {
+              const newNumbers = generateRandomNumbers(drawCount, minNumber, maxNumber, allWinningNumbers);
+              if (newNumbers.length > 0) {
+                setCurrentNumbers(newNumbers);
+                setAbsentNumbers([]);
+                playSound('celebration'); // 播放慶祝音效
+              }
+              setIsDrawing(false);
+            }, 2000); // 延長到2秒讓動畫完整播放
+          };
+
+          const markAbsent = (number) => {
+            playSound('absent'); // 播放缺席音效
+            setAbsentNumbers(prev => [...prev, number]);
+            setCurrentNumbers(prev => prev.filter(n => n !== number));
+          };
+
+          const redrawAbsent = () => {
+            const absentCount = absentNumbers.length;
+            if (absentCount === 0) return;
+
+            playSound('diceRoll'); // 播放骰子滾動音效
+            setIsDrawing(true);
+            setTimeout(() => {
+              const newNumbers = generateRandomNumbers(absentCount, minNumber, maxNumber, allWinningNumbers);
+              if (newNumbers.length > 0) {
+                setCurrentNumbers(prev => [...prev, ...newNumbers]);
+                setAbsentNumbers([]);
+                playSound('celebration'); // 播放慶祝音效
+              }
+              setIsDrawing(false);
+            }, 2000);
+          };
+
+          const confirmWinners = () => {
+            if (currentNumbers.length === 0) {
+              alert('請先進行抽獎');
+              return;
+            }
+
+            playSound('confirm'); // 播放確認音效
+
+            const newWinners = [...currentNumbers];
+            const currentAbsent = [...absentNumbers];
+            
+            // 將中獎號碼和缺席號碼都加入已抽取集合
+            newWinners.forEach(num => allWinningNumbers.add(num));
+            currentAbsent.forEach(num => allWinningNumbers.add(num));
+            
+            // 加入歷史記錄
+            setDrawHistory(prev => [...prev, {
+              round: currentRound,
+              numbers: [...newWinners],
+              absentNumbers: [...currentAbsent],
+              timestamp: new Date().toLocaleString('zh-TW')
+            }]);
+            
+            setAllWinningNumbers(new Set(allWinningNumbers));
+            setCurrentNumbers([]);
+            setAbsentNumbers([]);
+            setCurrentRound(prev => prev + 1);
+            
+            const absentMessage = currentAbsent.length > 0 ? `\n不在現場號碼：${currentAbsent.join(', ')}（已從號碼池中移除）` : '';
+            alert(`第${currentRound}輪抽獎完成！中獎號碼：${newWinners.join(', ')}${absentMessage}`);
+          };
+
+          const resetAll = () => {
+            if (confirm('確定要重置所有抽獎記錄嗎？')) {
+              setCurrentNumbers([]);
+              setAbsentNumbers([]);
+              setAllWinningNumbers(new Set());
+              setDrawHistory([]);
+              setCurrentRound(1);
+            }
+          };
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 p-4">
+              <div className="max-w-6xl mx-auto">
+                <div className="text-center mb-8">
+                  <h1 className="text-4xl font-bold text-white mb-2">🏆 抽獎系統 🏆</h1>
+                  <p className="text-blue-200">第 {currentRound} 輪抽獎</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+                  {/* 左側設定 */}
+                  <div className="lg:col-span-1 space-y-6">
+                    <div className="bg-white/10 backdrop-blur-md rounded-xl border border-white/20 p-4">
+                      <button
+                        onClick={() => {
+                          playSound('click');
+                          setShowSettings(!showSettings);
+                        }}
+                        className="w-full text-white font-semibold mb-4 flex items-center justify-between"
+                      >
+                        ⚙️ 抽獎設定
+                        <span className={`transform transition-transform ${showSettings ? 'rotate-180' : ''}`}>▼</span>
+                      </button>
+                      
+                      {showSettings && (
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-white/80 text-sm mb-2">最小號碼</label>
+                            <input
+                              type="number"
+                              value={minNumber}
+                              onChange={(e) => setMinNumber(parseInt(e.target.value) || 1)}
+                              className="w-full px-3 py-2 bg-white/20 border border-white/30 rounded-lg text-white"
+                              min="1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-white/80 text-sm mb-2">最大號碼</label>
+                            <input
+                              type="number"
+                              value={maxNumber}
+                              onChange={(e) => setMaxNumber(parseInt(e.target.value) || 1000)}
+                              className="w-full px-3 py-2 bg-white/20 border border-white/30 rounded-lg text-white"
+                              min="1"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-white/80 text-sm mb-2">抽獎數量</label>
+                            <input
+                              type="number"
+                              value={drawCount}
+                              onChange={(e) => setDrawCount(parseInt(e.target.value) || 6)}
+                              className="w-full px-3 py-2 bg-white/20 border border-white/30 rounded-lg text-white"
+                              min="1"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 音效控制 */}
+                    <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white font-semibold">🔊 音效</span>
+                        <button
+                          onClick={() => {
+                            setSoundEnabled(!soundEnabled);
+                            if (!soundEnabled) playSound('click');
+                          }}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                            soundEnabled ? 'bg-blue-600' : 'bg-gray-600'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              soundEnabled ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
+                        </button>
+                      </div>
+                      <div className="text-white/70 text-xs mt-2">
+                        {soundEnabled ? '音效已開啟' : '音效已關閉'}
+                      </div>
+                    </div>
+
+                    {/* 統計 */}
+                    <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/20">
+                      <div className="space-y-4 text-center">
+                        <div>
+                          <div className="text-white/80 text-sm">累計中獎號碼</div>
+                          <div className="text-3xl font-bold text-white">{allWinningNumbers.size}</div>
+                        </div>
+                        <div>
+                          <div className="text-white/80 text-sm">剩餘可抽號碼</div>
+                          <div className="text-3xl font-bold text-white">{maxNumber - minNumber + 1 - allWinningNumbers.size}</div>
+                        </div>
+                        <div>
+                          <div className="text-white/80 text-sm">已完成輪次</div>
+                          <div className="text-3xl font-bold text-white">{drawHistory.length}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 右側抽獎區 */}
+                  <div className="lg:col-span-3">
+                    <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20 min-h-96">
+                      <h2 className="text-2xl font-bold text-white mb-6">本輪抽獎結果</h2>
+                      
+                      <div className="text-center mb-8">
+                        <button
+                          onClick={() => {
+                            playSound('click');
+                            performDraw();
+                          }}
+                          disabled={isDrawing}
+                          className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 disabled:opacity-50 text-white font-bold py-4 px-8 rounded-xl text-lg shadow-lg transform hover:scale-105 transition-all duration-200"
+                        >
+                          {isDrawing ? (
+                            <div className="flex items-center gap-3">
+                              <div className="animate-bounce">🎲</div>
+                              <span>抽獎中...</span>
+                              <div className="animate-bounce" style={{animationDelay: '0.1s'}}>🎲</div>
+                            </div>
+                          ) : (
+                            '🎲 開始抽獎'
+                          )}
+                        </button>
+                      </div>
+
+                      {/* 抽獎進行中的動畫 */}
+                      {isDrawing && (
+                        <div className="text-center mb-8">
+                          <div className="flex justify-center items-center gap-4 mb-4">
+                            <div className="text-6xl animate-spin">🎲</div>
+                            <div className="text-6xl animate-spin" style={{animationDelay: '0.2s'}}>🎲</div>
+                            <div className="text-6xl animate-spin" style={{animationDelay: '0.4s'}}>🎲</div>
+                          </div>
+                          <div className="text-white text-xl animate-pulse">
+                            正在抽取 {drawCount} 個幸運號碼...
+                          </div>
+                          <div className="mt-4">
+                            <div className="bg-white/20 rounded-full h-2 overflow-hidden">
+                              <div className="bg-yellow-400 h-full animate-pulse" style={{width: '100%'}}></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {currentNumbers.length > 0 && !isDrawing && (
+                        <div className="mb-6">
+                          <div className="text-center mb-4">
+                            <div className="text-3xl animate-bounce">🎉</div>
+                            <div className="text-white text-xl font-bold animate-pulse">
+                              恭喜中獎！
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+                            {currentNumbers.map((number, index) => (
+                              <div 
+                                key={index} 
+                                className="relative animate-bounce" 
+                                style={{animationDelay: `${index * 0.1}s`, animationDuration: '1s'}}
+                              >
+                                <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-center shadow-lg transform hover:scale-105 transition-all animate-pulse">
+                                  <div className="text-3xl font-bold text-white">{number}</div>
+                                </div>
+                                <button
+                                  onClick={() => markAbsent(number)}
+                                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-8 h-8 text-sm font-bold shadow-lg"
+                                  title="標記為不在現場"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          <div className="text-center">
+                            <button
+                              onClick={confirmWinners}
+                              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg animate-pulse"
+                            >
+                              🏆 確認中獎
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {currentNumbers.length === 0 && !isDrawing && (
+                        <div className="text-center text-white/60 py-16">
+                          <div className="text-6xl mb-4">🏆</div>
+                          <p className="text-xl">點擊上方按鈕開始抽獎</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 缺席號碼區域 */}
+                {absentNumbers.length > 0 && (
+                  <div className="bg-red-500/20 backdrop-blur-md rounded-xl p-6 mb-6 border border-red-500/30">
+                    <h2 className="text-xl font-semibold text-white mb-4">不在現場號碼</h2>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
+                      {absentNumbers.map((number, index) => (
+                        <div key={index} className="bg-red-500 rounded-lg p-4 text-center shadow-lg">
+                          <div className="text-2xl font-bold text-white">{number}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-center">
+                      <button
+                        onClick={redrawAbsent}
+                        disabled={isDrawing}
+                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold py-2 px-6 rounded-lg flex items-center gap-2 mx-auto"
+                      >
+                        {isDrawing ? (
+                          <>
+                            <div className="animate-spin">🎲</div>
+                            重新抽取中...
+                          </>
+                        ) : (
+                          <>
+                            🔄 重新抽取
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 中獎記錄 */}
+                {drawHistory.length > 0 && (
+                  <div className="bg-white/10 backdrop-blur-md rounded-xl p-6 mb-6 border border-white/20">
+                    <div className="flex justify-between items-center mb-4">
+                      <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                        👥 中獎記錄
+                      </h2>
+                      <button
+                        onClick={resetAll}
+                        className="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg text-sm"
+                      >
+                        重置全部
+                      </button>
+                    </div>
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {drawHistory.map((record, index) => (
+                        <div key={index} className="bg-white/10 rounded-lg p-3">
+                          <div className="flex justify-between items-start mb-2">
+                            <span className="font-semibold text-white">第 {record.round} 輪</span>
+                            <span className="text-white/70 text-sm">{record.timestamp}</span>
+                          </div>
+                          <div className="mb-2">
+                            <div className="text-white/80 text-sm mb-1">中獎號碼：</div>
+                            <div className="flex flex-wrap gap-2">
+                              {record.numbers.map((num, numIndex) => (
+                                <span key={numIndex} className="bg-yellow-500 text-white px-2 py-1 rounded text-sm font-semibold">
+                                  {num}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          {record.absentNumbers && record.absentNumbers.length > 0 && (
+                            <div>
+                              <div className="text-white/80 text-sm mb-1">不在現場：</div>
+                              <div className="flex flex-wrap gap-2">
+                                {record.absentNumbers.map((num, numIndex) => (
+                                  <span key={numIndex} className="bg-red-500 text-white px-2 py-1 rounded text-sm font-semibold">
+                                    {num}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        };
+
+        ReactDOM.render(<LotterySystem />, document.getElementById('root'));
+    </script>
 </body>
 </html>
